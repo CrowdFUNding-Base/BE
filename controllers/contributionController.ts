@@ -262,31 +262,3 @@ const mintAndDonateIDRX = async (amount: number, campaignId: number) => {
     };
   }
 };
-
-export const getVaultDetails = async (req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    message: "Get vault details not implemented yet",
-  });
-};
-
-export const getUserVaults = async (req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    message: "Get user vaults not implemented yet",
-  });
-};
-
-export const updateContributionStatus = async (req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    message: "Update contribution status not implemented yet",
-  });
-};
-
-export const checkTransactionStatus = async (req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    message: "Check transaction status not implemented yet",
-  });
-};

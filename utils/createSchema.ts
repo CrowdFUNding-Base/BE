@@ -1,12 +1,10 @@
-import { connectDB } from "./config/database";
-import pool from "./config/database";
+import { connectDB } from "../config/database";
+import pool from "../config/database";
 import fs from "fs";
 import path from "path";
 
 async function createSchema() {
   try {
-    console.log("Creating database schema...");
-
     // Read the SQL schema file
     const schemaPath = path.join(__dirname, "sql", "schema.sql");
     const schemaSql = fs.readFileSync(schemaPath, "utf-8");
