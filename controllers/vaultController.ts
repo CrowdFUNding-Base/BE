@@ -238,7 +238,7 @@ export const updateVaultDetails = async (req: Request, res: Response) => {
 };
 
 /**
- * Get vault details (reads from blockchain + database)
+ * Get vault details (reads from PostgreSQL cache)
  * GET /api/vaults/:vaultId
  */
 export const getVaultDetails = async (req: Request, res: Response) => {
@@ -247,41 +247,62 @@ export const getVaultDetails = async (req: Request, res: Response) => {
   try {
     const { vaultId } = req.params;
 
-    // Get vault from database
-    const vaultQuery = await client.query(
-      "SELECT * FROM vaults WHERE vault_id = $1",
-      [vaultId],
-    );
+    // ✅ SINGLE QUERY: Join vaults + blockchain_campaigns (from cache)
+    const query = `
+      SELECT 
+        v.*,
+        bc.id as blockchain_campaign_id,
+        bc.name as blockchain_name,
+        bc.creator_name as blockchain_creator_name,
+        bc.owner as blockchain_owner,
+        bc.balance as blockchain_balance,
+        bc.target_amount as blockchain_target_amount,
+        bc.creation_time as blockchain_creation_time,
+        bc.last_synced_at as blockchain_last_synced
+      FROM vaults v
+      LEFT JOIN blockchain_campaigns bc ON v.campaign_id = bc.id
+      WHERE v.vault_id = $1
+    `;
 
-    if (vaultQuery.rows.length === 0) {
+    const result = await client.query(query, [vaultId]);
+
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Vault not found",
       });
     }
 
-    const vault = vaultQuery.rows[0];
-    const campaignId = vault.campaign_id;
-
-    // Get campaign data from blockchain
-    const campaignContract = getCampaignContract(getProvider());
-
-    // ✅ READ FROM BLOCKCHAIN
-    const campaignInfo = await campaignContract.getCampaignInfo(campaignId);
+    const data = result.rows[0];
 
     res.status(200).json({
       success: true,
       data: {
-        vault: vault,
-        blockchain: {
-          campaignId: campaignId,
-          name: campaignInfo.name,
-          creatorName: campaignInfo.creatorName,
-          balance: ethers.utils.formatUnits(campaignInfo.balance, 2),
-          targetAmount: ethers.utils.formatUnits(campaignInfo.targetAmount, 2),
-          creationTime: campaignInfo.creationTime.toNumber(),
-          owner: campaignInfo.owner,
+        vault: {
+          vaultId: data.vault_id,
+          campaignId: data.campaign_id,
+          crowdfunderEmail: data.crowdfunder_email,
+          title: data.title,
+          description: data.description,
+          targetAmount: data.target_amount,
+          currentAmount: data.current_amount,
+          currency: data.currency,
+          status: data.status,
+          endDate: data.end_date,
+          createdAt: data.created_at,
         },
+        blockchain: data.blockchain_campaign_id
+          ? {
+              campaignId: data.blockchain_campaign_id,
+              name: data.blockchain_name,
+              creatorName: data.blockchain_creator_name,
+              owner: data.blockchain_owner,
+              balance: data.blockchain_balance,
+              targetAmount: data.blockchain_target_amount,
+              creationTime: data.blockchain_creation_time,
+              lastSyncedAt: data.blockchain_last_synced,
+            }
+          : null,
       },
     });
   } catch (err: any) {
@@ -289,6 +310,447 @@ export const getVaultDetails = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: err.message || "Failed to get vault details",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get all vaults with blockchain data (from PostgreSQL cache)
+ * GET /api/vaults
+ */
+export const getAllVaults = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { status = "active", limit = 20, offset = 0 } = req.query;
+
+    // ✅ SINGLE QUERY: Join vaults + blockchain_campaigns (from cache)
+    const query = `
+      SELECT 
+        v.*,
+        bc.id as blockchain_campaign_id,
+        bc.name as blockchain_name,
+        bc.creator_name as blockchain_creator_name,
+        bc.owner as blockchain_owner,
+        bc.balance as blockchain_balance,
+        bc.target_amount as blockchain_target_amount,
+        bc.creation_time as blockchain_creation_time,
+        bc.last_synced_at as blockchain_last_synced
+      FROM vaults v
+      LEFT JOIN blockchain_campaigns bc ON v.campaign_id = bc.id
+      WHERE v.status = $1
+      ORDER BY v.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await client.query(query, [status, limit, offset]);
+
+    // Get total count
+    const countResult = await client.query(
+      "SELECT COUNT(*) FROM vaults WHERE status = $1",
+      [status],
+    );
+
+    const vaults = result.rows.map((data: any) => ({
+      vault: {
+        vaultId: data.vault_id,
+        campaignId: data.campaign_id,
+        title: data.title,
+        description: data.description,
+        targetAmount: data.target_amount,
+        currentAmount: data.current_amount,
+        currency: data.currency,
+        status: data.status,
+        endDate: data.end_date,
+        createdAt: data.created_at,
+      },
+      blockchain: data.blockchain_campaign_id
+        ? {
+            campaignId: data.blockchain_campaign_id,
+            name: data.blockchain_name,
+            creatorName: data.blockchain_creator_name,
+            owner: data.blockchain_owner,
+            balance: data.blockchain_balance,
+            targetAmount: data.blockchain_target_amount,
+            creationTime: data.blockchain_creation_time,
+            lastSyncedAt: data.blockchain_last_synced,
+          }
+        : null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: vaults,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit: Number(limit),
+        offset: Number(offset),
+        source: "PostgreSQL Cache",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get all vaults error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get vaults",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get vault statistics (from PostgreSQL cache)
+ * GET /api/vaults/statistics
+ */
+export const getVaultStatistics = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    // ✅ All data from PostgreSQL (no external HTTP calls!)
+    const statsQuery = `
+      SELECT 
+        -- Vault stats
+        (SELECT COUNT(*) FROM vaults) as total_vaults,
+        (SELECT COUNT(*) FROM vaults WHERE status = 'active') as active_vaults,
+        (SELECT COUNT(*) FROM vaults WHERE status = 'completed') as completed_vaults,
+        (SELECT COUNT(*) FROM vaults WHERE status = 'cancelled') as cancelled_vaults,
+        (SELECT SUM(current_amount) FROM vaults) as total_raised_app,
+        (SELECT SUM(target_amount) FROM vaults) as total_target_app,
+        
+        -- Blockchain stats (from cache)
+        (SELECT COUNT(*) FROM blockchain_campaigns) as total_campaigns,
+        (SELECT COALESCE(SUM(balance), 0) FROM blockchain_campaigns) as total_balance_blockchain,
+        (SELECT COALESCE(SUM(target_amount), 0) FROM blockchain_campaigns) as total_target_blockchain,
+        (SELECT COUNT(*) FROM blockchain_donations) as total_donations,
+        (SELECT COALESCE(SUM(amount), 0) FROM blockchain_donations) as total_donated,
+        (SELECT COUNT(*) FROM blockchain_badges) as total_badges,
+        (SELECT COUNT(*) FROM blockchain_withdrawals) as total_withdrawals,
+        (SELECT COALESCE(SUM(amount), 0) FROM blockchain_withdrawals) as total_withdrawn
+    `;
+
+    const result = await client.query(statsQuery);
+    const stats = result.rows[0];
+
+    // Calculate progress
+    const totalTarget = parseFloat(stats.total_target_blockchain) || 1;
+    const totalBalance = parseFloat(stats.total_balance_blockchain) || 0;
+    const averageProgress = ((totalBalance / totalTarget) * 100).toFixed(2);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        application: {
+          totalVaults: parseInt(stats.total_vaults) || 0,
+          activeVaults: parseInt(stats.active_vaults) || 0,
+          completedVaults: parseInt(stats.completed_vaults) || 0,
+          cancelledVaults: parseInt(stats.cancelled_vaults) || 0,
+          totalRaisedApp: parseFloat(stats.total_raised_app) || 0,
+          totalTargetApp: parseFloat(stats.total_target_app) || 0,
+        },
+        blockchain: {
+          totalCampaigns: parseInt(stats.total_campaigns) || 0,
+          totalDonations: parseInt(stats.total_donations) || 0,
+          totalBadges: parseInt(stats.total_badges) || 0,
+          totalWithdrawals: parseInt(stats.total_withdrawals) || 0,
+          totalBalance: stats.total_balance_blockchain || "0",
+          totalTarget: stats.total_target_blockchain || "0",
+          totalDonated: stats.total_donated || "0",
+          totalWithdrawn: stats.total_withdrawn || "0",
+          averageProgress: `${averageProgress}%`,
+        },
+        source: "PostgreSQL Cache (synced by Ponder)",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get vault statistics error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get statistics",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get donations for a vault (from PostgreSQL cache)
+ * GET /api/vaults/:vaultId/donations
+ */
+export const getVaultDonations = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { vaultId } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    // Get campaign_id from vault
+    const vaultResult = await client.query(
+      "SELECT campaign_id FROM vaults WHERE vault_id = $1",
+      [vaultId],
+    );
+
+    if (vaultResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Vault not found",
+      });
+    }
+
+    const campaignId = vaultResult.rows[0].campaign_id;
+
+    // Get donations from cache
+    const donationsQuery = `
+      SELECT * FROM blockchain_donations 
+      WHERE campaign_id = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await client.query(donationsQuery, [
+      campaignId,
+      limit,
+      offset,
+    ]);
+
+    // Get total count
+    const countResult = await client.query(
+      "SELECT COUNT(*) FROM blockchain_donations WHERE campaign_id = $1",
+      [campaignId],
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit: Number(limit),
+        offset: Number(offset),
+        campaignId: campaignId,
+        source: "PostgreSQL Cache",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get vault donations error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get donations",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get user's donations by wallet address (from PostgreSQL cache)
+ * GET /api/donations/user/:walletAddress
+ */
+export const getUserDonations = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { walletAddress } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const query = `
+      SELECT 
+        d.*,
+        bc.name as campaign_name,
+        bc.creator_name as campaign_creator
+      FROM blockchain_donations d
+      LEFT JOIN blockchain_campaigns bc ON d.campaign_id = bc.id
+      WHERE LOWER(d.donor) = LOWER($1)
+      ORDER BY d.timestamp DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await client.query(query, [walletAddress, limit, offset]);
+
+    // Get total count
+    const countResult = await client.query(
+      "SELECT COUNT(*) FROM blockchain_donations WHERE LOWER(donor) = LOWER($1)",
+      [walletAddress],
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit: Number(limit),
+        offset: Number(offset),
+        walletAddress: walletAddress,
+        source: "PostgreSQL Cache",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get user donations error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get user donations",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get user's badges by wallet address (from PostgreSQL cache)
+ * GET /api/badges/user/:walletAddress
+ */
+export const getUserBadges = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { walletAddress } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    const query = `
+      SELECT * FROM blockchain_badges 
+      WHERE LOWER(owner) = LOWER($1)
+      ORDER BY timestamp DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await client.query(query, [walletAddress, limit, offset]);
+
+    // Get total count
+    const countResult = await client.query(
+      "SELECT COUNT(*) FROM blockchain_badges WHERE LOWER(owner) = LOWER($1)",
+      [walletAddress],
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit: Number(limit),
+        offset: Number(offset),
+        walletAddress: walletAddress,
+        source: "PostgreSQL Cache",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get user badges error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get user badges",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get all blockchain campaigns (from PostgreSQL cache)
+ * GET /api/campaigns
+ */
+export const getAllCampaigns = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { limit = 50, offset = 0 } = req.query;
+
+    const query = `
+      SELECT * FROM blockchain_campaigns 
+      ORDER BY creation_time DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const result = await client.query(query, [limit, offset]);
+
+    // Get total count
+    const countResult = await client.query(
+      "SELECT COUNT(*) FROM blockchain_campaigns",
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result.rows,
+      meta: {
+        total: parseInt(countResult.rows[0].count),
+        limit: Number(limit),
+        offset: Number(offset),
+        source: "PostgreSQL Cache",
+      },
+    });
+  } catch (err: any) {
+    console.error("Get all campaigns error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get campaigns",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get single campaign by ID (from PostgreSQL cache)
+ * GET /api/campaigns/:id
+ */
+export const getCampaignById = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+
+    const query = `
+      SELECT 
+        bc.*,
+        v.vault_id,
+        v.title as vault_title,
+        v.description as vault_description,
+        v.status as vault_status,
+        v.end_date as vault_end_date
+      FROM blockchain_campaigns bc
+      LEFT JOIN vaults v ON bc.id = v.campaign_id
+      WHERE bc.id = $1
+    `;
+
+    const result = await client.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    const data = result.rows[0];
+
+    res.status(200).json({
+      success: true,
+      data: {
+        campaign: {
+          id: data.id,
+          name: data.name,
+          creatorName: data.creator_name,
+          owner: data.owner,
+          balance: data.balance,
+          targetAmount: data.target_amount,
+          creationTime: data.creation_time,
+          lastSyncedAt: data.last_synced_at,
+        },
+        vault: data.vault_id
+          ? {
+              vaultId: data.vault_id,
+              title: data.vault_title,
+              description: data.vault_description,
+              status: data.vault_status,
+              endDate: data.vault_end_date,
+            }
+          : null,
+      },
+    });
+  } catch (err: any) {
+    console.error("Get campaign by ID error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get campaign",
     });
   } finally {
     client.release();

@@ -1,12 +1,10 @@
 import { Pool } from "pg";
 
 // PostgreSQL connection pool
+// Note: Supabase Pooler doesn't support SSL, use direct connection for SSL
 const pool = new Pool({
   connectionString: process.env.POSTGRESQL_URL,
-  ssl:
-    process.env.NODE_ENV === "production"
-      ? { rejectUnauthorized: false }
-      : false,
+  ssl: false, // Pooler mode doesn't support SSL
 });
 
 // Test connection

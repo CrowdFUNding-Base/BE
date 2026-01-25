@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon",
-    "build": "tsc"
+    "build": "tsc",
+    "sync:initial": "ts-node scripts/initialSync.ts"
   },
   "author": "",
   "license": "ISC",

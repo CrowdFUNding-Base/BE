@@ -7,6 +7,7 @@ import express from "express";
 import methodOverride from "method-override";
 import cors from "cors";
 import crowdfundingRoutes from "./routes/crowdfunding";
+import syncRoutes from "./routes/sync";
 
 import session from "express-session";
 import passport from "passport";
@@ -86,6 +87,7 @@ app.use(passport.session());
 app.use("/", authRoutes);
 // app.use("/", pricefeedRoutes);
 app.use("/crowdfunding", crowdfundingRoutes);
+app.use("/api/sync", syncRoutes); // Ponder webhook sync routes
 
 //handle semua endpoint yang gaada untuk menampilkan 404 not found page
 app.get("*", (req, res) => {

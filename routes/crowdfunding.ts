@@ -9,13 +9,18 @@ import {
 import {
   createQRIS,
   getQRISStatus,
-  updateContributionStatus,
-  checkTransactionStatus,
 } from "../controllers/contributionController";
 import {
   createVault,
   updateVaultDetails,
   getVaultDetails,
+  getAllVaults,
+  getVaultStatistics,
+  getVaultDonations,
+  getUserDonations,
+  getUserBadges,
+  getAllCampaigns,
+  getCampaignById,
 } from "../controllers/vaultController";
 import {
   createAchievement,
@@ -33,17 +38,7 @@ import {
   generateShareImage,
   getShareLinkStats,
 } from "../controllers/shareController";
-import {
-  getCampaignsFromPonder,
-  getCampaignByIdFromPonder,
-  getDonationsFromPonder,
-  getUserDonationsFromPonder,
-  getBadgesFromPonder,
-  getUserBadgesFromPonder,
-  getPonderHealth,
-  getAllActiveVaultsFromPonder,
-  getVaultStatisticsFromPonder,
-} from "../controllers/ponderController";
+import { getSyncStatus } from "../controllers/syncController";
 import {
   authenticateUser,
   optionalAuthenticate,
@@ -65,8 +60,8 @@ router.post("/wallet-login", walletOnlyLogin);
 
 // ================= VAULT/CROWDFUNDING ROUTES =================
 
-// Get all active vaults - public access
-router.get("/vaults", getAllActiveVaultsFromPonder);
+// Get all active vaults - public access (from PostgreSQL cache)
+router.get("/vaults", getAllVaults as any);
 
 // Create Vault (creates campaign on-chain and saves to DB) - requires authentication
 router.post("/vault/create", authenticateUser, createVault as any);
@@ -77,18 +72,17 @@ router.post("/vault/register-idrx", authenticateUser, registerVaultToIDRX);
 // Add Bank Account to Vault - requires authentication
 router.post("/vault/add-bank-account", authenticateUser, addBankAccountToVault);
 
-// Get Vault Details (reads from blockchain + DB) - public access
+// Get Vault Details (reads from PostgreSQL cache) - public access
 router.get("/vault/:vaultId", getVaultDetails as any);
 
 // Update Vault Details (updates blockchain + DB) - requires authentication
 router.patch("/vault/:vaultId", authenticateUser, updateVaultDetails as any);
 
-// Get Vault Statistics - requires authentication
-router.get(
-  "/vault/:vaultId/statistics",
-  authenticateUser,
-  getVaultStatisticsFromPonder,
-);
+// Get Vault Statistics (from PostgreSQL cache) - public access
+router.get("/vaults/statistics", getVaultStatistics as any);
+
+// Get Vault Donations (from PostgreSQL cache) - public access
+router.get("/vault/:vaultId/donations", getVaultDonations as any);
 
 // ================= CONTRIBUTION ROUTES =================
 
@@ -98,18 +92,8 @@ router.post("/contribution/qris", createQRIS as any);
 // Check QRIS Payment Status and Mint IDRX - no auth required
 router.post("/contribution/qris-status/:orderId", getQRISStatus as any);
 
-// Update Contribution Status (webhook handler) - no auth required
-router.post("/contribution/update-status", updateContributionStatus as any);
-
-// Check Transaction Status - no auth required
-router.get("/transaction/status", checkTransactionStatus as any);
-
-// Get User Contribution History - requires authentication
-router.get(
-  "/contributions/history",
-  authenticateUser,
-  getUserDonationsFromPonder,
-);
+// Get User Contribution History (from PostgreSQL cache) - requires authentication
+router.get("/contributions/history", authenticateUser, getUserDonations as any);
 
 // ================= ACHIEVEMENT ROUTES =================
 
@@ -151,27 +135,21 @@ router.get("/share/:shortCode/image", generateShareImage);
 // Redirect to Campaign from Share Link - public access (must be last to avoid conflicts)
 router.get("/share/:shortCode", redirectToCampaign);
 
-// ================= PONDER BLOCKCHAIN DATA ROUTES =================
+// ================= BLOCKCHAIN DATA ROUTES (from PostgreSQL Cache) =================
 
-// Get Ponder Health Status - public access
-router.get("/ponder/health", getPonderHealth);
+// Get Sync Status - public access
+router.get("/sync/status", getSyncStatus as any);
 
-// Get Campaigns from Blockchain - public access
-router.get("/ponder/campaigns", getCampaignsFromPonder);
+// Get All Campaigns from PostgreSQL Cache - public access
+router.get("/campaigns", getAllCampaigns as any);
 
-// Get Single Campaign from Blockchain - public access
-router.get("/ponder/campaigns/:id", getCampaignByIdFromPonder);
+// Get Single Campaign from PostgreSQL Cache - public access
+router.get("/campaigns/:id", getCampaignById as any);
 
-// Get Donations from Blockchain - public access
-router.get("/ponder/donations", getDonationsFromPonder);
+// Get User Donations from PostgreSQL Cache - public access
+router.get("/donations/user/:walletAddress", getUserDonations as any);
 
-// Get User Donations from Blockchain - public access
-router.get("/ponder/donations/user/:walletAddress", getUserDonationsFromPonder);
-
-// Get Badges from Blockchain - public access
-router.get("/ponder/badges", getBadgesFromPonder);
-
-// Get User Badges from Blockchain - public access
-router.get("/ponder/badges/user/:walletAddress", getUserBadgesFromPonder);
+// Get User Badges from PostgreSQL Cache - public access
+router.get("/badges/user/:walletAddress", getUserBadges as any);
 
 export default router;
