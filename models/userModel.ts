@@ -30,7 +30,7 @@ export interface IWalletAddress {
   id?: string;
   user_id: string;
   wallet_address: string;
-  role?: "none" | "sender" | "receiver";
+  role?: "none" | "sender" | "receiver" | "contributor" | "campaigner";
   available_balance?: number;
   created_at?: Date;
 }

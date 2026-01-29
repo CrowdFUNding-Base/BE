@@ -82,23 +82,44 @@ export const walletOnlyLogin = async (req: Request, res: Response) => {
     let user;
 
     if (!userData) {
-      // Create new user with wallet only
-      user = await UserModel.create({
-        email: walletAddress + "@wallet.user", // Temporary email
-        fullname: `User_${walletAddress.slice(0, 6)}`,
-        is_wallet_only: true,
-      });
+      const email = walletAddress + "@wallet.user";
+      // Check if user exists (fail-safe for interrupted registration)
+      let existingUser = await UserModel.findByEmail(email);
 
-      await UserModel.addWalletAddress({
-        user_id: user.id!,
-        wallet_address: walletAddress,
-        role: role as any,
-      });
+      if (existingUser) {
+        console.log("Found existing user with incomplete wallet setup, reusing...");
+        user = existingUser;
+      } else {
+        // Create new user with wallet only
+        user = await UserModel.create({
+          email, // Temporary email
+          fullname: `User_${walletAddress.slice(0, 6)}`,
+          is_wallet_only: true,
+        });
+      }
+
+      // Add wallet address
+      try {
+        console.log("Adding wallet address...");
+        await UserModel.addWalletAddress({
+          user_id: user.id!,
+          wallet_address: walletAddress,
+          role: (role === "contributor" ? "sender" : role) as any,
+        });
+        console.log("✅ Wallet address added.");
+      } catch (err: any) {
+        console.log("⚠️ Error adding wallet:", err.code);
+        // Ignore duplicate wallet address error if it effectively exists
+        if (err.code !== "23505") {
+          throw err;
+        }
+      }
     } else {
       user = userData.user;
     }
 
     // Generate session token
+    console.log("Generating token...");
     const sessionData = {
       _id: user.id!,
       walletAddress,
@@ -106,6 +127,7 @@ export const walletOnlyLogin = async (req: Request, res: Response) => {
     };
 
     const token = generateToken(sessionData);
+    console.log("✅ Token generated.");
 
     res.cookie("user_session", token, {
       httpOnly: true,
@@ -113,6 +135,8 @@ export const walletOnlyLogin = async (req: Request, res: Response) => {
       sameSite: "strict",
       maxAge: 24 * 60 * 60 * 1000,
     });
+    
+    console.log("Login successful, sending response.");
 
     res.status(200).json({
       success: true,
@@ -262,7 +286,7 @@ export const syncWalletToAccount = async (req: Request, res: Response) => {
     await UserModel.addWalletAddress({
       user_id: user.id!,
       wallet_address: walletAddress,
-      role: role as any,
+      role: (role === 'contributor' ? 'sender' : role) as any,
     });
 
     // Update user to no longer be wallet_only if it was
