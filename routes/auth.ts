@@ -2,8 +2,15 @@ import express, { NextFunction, Request, Response, Router } from "express";
 import { generateToken } from "../utils/generateToken";
 import jwt from "jsonwebtoken";
 import { LoginSessionTokenModel, UserModel } from "../models/userModel";
-import bcrypt from "bcrypt";
-import crypto from "crypto";
+import env from "dotenv";
+env.config();
+import {
+  googleOAuthLogin,
+  walletOnlyLogin,
+  checkWalletSync,
+  syncWalletToAccount,
+  checkGoogleSync,
+} from "../controllers/authController";
 const router: Router = express.Router();
 
 router.get(
@@ -77,58 +84,6 @@ router.get(
     }
   },
 );
-
-// router.post(
-//   "/login",
-//   async (req: Request, res: Response, next: NextFunction) => {
-//     const { email, password } = req.body;
-
-//     if (!email || !password) {
-//       res.status(400).json({ message: "Email and password are required" });
-//       return;
-//     }
-
-//     try {
-//       const user = await UserModel.findOne({ email });
-//       if (!user) {
-//         res
-//           .status(404)
-//           .json({ message: "Account with specified email is not found" });
-//         return;
-//       }
-
-//       const isPasswordValid = await bcrypt.compare(
-//         password,
-//         user.hashedPassword
-//       );
-
-//       if (!isPasswordValid) {
-//         res.status(401).json({ message: "Invalid password" });
-//         return;
-//       }
-
-//       const token = await generateCookiesToken(email, user);
-
-//       res.cookie("user_session", token, {
-//         httpOnly: true,
-//         sameSite: "none",
-//         secure: true,
-//         maxAge: 30 * 24 * 60 * 60 * 1000,
-//       });
-
-//       res.status(200).json({
-//         statusCode: 200,
-//         message: "Login successful",
-//       });
-
-//       return;
-//     } catch (err) {
-//       console.error("Error while logging in:", err);
-//       res.status(500).json({ message: "Internal server error" });
-//       return;
-//     }
-//   }
-// );
 
 // sebelumnya FE harus bisa memasitkan bahwa user tersebut memang pemilik waleltAddressnya (tidak sekedar ngesend walletaddress ke BE saja)
 // dan dari BE harus punya sesuatu yang bisa memastikan bahwa orang itu memang itu (agar tidak bisa di hack dari postman dll)
@@ -291,6 +246,85 @@ router.post("/logout", (req: Request, res: Response) => {
 // ================= GOOGLE OAUTH ROUTES =================
 import passport from "passport";
 import "../config/passport"; // Import passport configuration
+import { Strategy as GoogleStrategy, Profile } from "passport-google-oauth20";
+// GOOGLE STRATEGY
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      callbackURL:
+        process.env.GOOGLE_CALLBACK_URL ||
+        "http://localhost:3300/auth/google/callback",
+      passReqToCallback: true,
+    },
+    async function (
+      req: Request,
+      accessToken: string,
+      refreshToken: string,
+      profile: Profile,
+      done,
+    ) {
+      try {
+        // Extract user info from Google profile
+        const email = profile.emails?.[0]?.value;
+        const googleId = profile.id;
+        const displayName = profile.displayName;
+
+        if (!email) {
+          return done(new Error("No email found in Google profile"));
+        }
+
+        console.log("🔍 Google OAuth - Looking for user with email:", email);
+
+        // Check if user already exists by email
+        let user = await UserModel.findByEmail(email);
+
+        if (user) {
+          console.log("✅ User found:", user.id);
+
+          // User exists - update Google info if not already set
+          if (!user.google_id) {
+            console.log("📝 Updating user with Google ID");
+            const updatedUser = await UserModel.updateById(user.id!, {
+              google_id: googleId,
+              is_google_auth: true,
+            });
+            return done(null, updatedUser || user);
+          }
+
+          return done(null, user);
+        } else {
+          console.log("➕ Creating new user with Google OAuth");
+
+          // Create new user with Google OAuth data
+          const newUser = await UserModel.create({
+            email: email,
+            fullname: displayName,
+            google_id: googleId,
+            is_google_auth: true,
+            is_wallet_only: false,
+            // No password for Google OAuth users
+          });
+
+          console.log("✅ New user created:", newUser.id);
+          return done(null, newUser);
+        }
+      } catch (err) {
+        console.error("❌ Google OAuth Strategy Error:", err);
+        return done(err as Error);
+      }
+    },
+  ),
+);
+
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+
+passport.deserializeUser((user, done) => {
+  done(null, user!);
+});
 
 // Initiate Google OAuth flow
 router.get(
@@ -334,7 +368,7 @@ router.get(
 
       // Redirect to frontend with success
       res.redirect(
-        `${process.env.FRONTEND_URL || "http://localhost:3000"}/auth/callback?success=true`,
+        `${process.env.FRONTEND_URL || "http://localhost:3000"}/home`,
       );
     } catch (error) {
       console.error("Google OAuth callback error:", error);
@@ -396,5 +430,18 @@ router.get("/auth/me", async (req: Request, res: Response) => {
     });
   }
 });
+
+// Google OAuth Login
+router.post("/google-login", googleOAuthLogin);
+
+// Web3 Wallet Login
+router.post("/wallet-login", walletOnlyLogin);
+
+// Sync wallet with Google account
+router.post("/check-wallet-sync", checkWalletSync);
+router.post("/sync-wallet", syncWalletToAccount);
+
+// Sync Google account with wallet-only user
+router.post("/check-google-sync", checkGoogleSync);
 
 export default router;

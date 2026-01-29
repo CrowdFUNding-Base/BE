@@ -1,7 +1,6 @@
 import express, { Router } from "express";
 import {
   googleOAuthLogin,
-  connectWalletToGoogleAccount,
   walletOnlyLogin,
   registerVaultToIDRX,
   addBankAccountToVault,
@@ -52,8 +51,8 @@ const router: Router = express.Router();
 // 1. Google OAuth Login
 router.post("/google-login", googleOAuthLogin);
 
-// 2. Connect Wallet to Google Account
-router.post("/connect-wallet", connectWalletToGoogleAccount as any);
+// 2. Connect Wallet to Google Account (TODO: Implement later)
+// router.post("/connect-wallet", connectWalletToGoogleAccount);
 
 // 3. Wallet Only Login
 router.post("/wallet-login", walletOnlyLogin);
