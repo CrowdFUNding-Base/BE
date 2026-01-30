@@ -115,7 +115,7 @@ export const getAchievementById = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = (req as any).user?._id;
 
     const achievement = await AchievementModel.findById(id);
@@ -159,7 +159,7 @@ export const updateAchievement = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { title, description, metadata } = req.body;
     const userId = (req as any).user?._id;
 
@@ -210,7 +210,7 @@ export const mintAchievementAsNFT = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { wallet_address } = req.body;
     const userId = (req as any).user?._id;
 
@@ -311,7 +311,7 @@ export const getAchievementsByCampaign = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { campaignId } = req.params;
+    const campaignId = req.params.campaignId as string;
 
     const achievements = await AchievementModel.findByCampaignId(campaignId);
 
