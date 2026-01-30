@@ -691,7 +691,7 @@ export const getAllCampaigns = async (req: Request, res: Response) => {
     const { limit = 50, offset = 0 } = req.query;
 
     const query = `
-      SELECT * FROM blockchain_campaigns 
+      SELECT * FROM blockchain_campaigns
       ORDER BY creation_time DESC
       LIMIT $1 OFFSET $2
     `;
@@ -703,9 +703,22 @@ export const getAllCampaigns = async (req: Request, res: Response) => {
       "SELECT COUNT(*) FROM blockchain_campaigns",
     );
 
+    // Map to camelCase for frontend
+    const campaigns = result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      creatorName: row.creator_name,
+      owner: row.owner,
+      balance: row.balance,
+      targetAmount: row.target_amount,
+      creationTime: row.creation_time,
+      lastSyncedAt: row.last_synced_at,
+      description: `Campaign by ${row.creator_name}`,
+    }));
+
     res.status(200).json({
       success: true,
-      data: result.rows,
+      data: campaigns,
       meta: {
         total: parseInt(countResult.rows[0].count),
         limit: Number(limit),
@@ -734,13 +747,7 @@ export const getCampaignById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // JOIN with vaults table to get description
-    const query = `
-      SELECT bc.*, v.description, v.vault_id
-      FROM blockchain_campaigns bc
-      LEFT JOIN vaults v ON bc.id = v.campaign_id
-      WHERE bc.id = $1
-    `;
+    const query = `SELECT * FROM blockchain_campaigns WHERE id = $1`;
 
     const result = await client.query(query, [id]);
 
@@ -765,12 +772,9 @@ export const getCampaignById = async (req: Request, res: Response) => {
           targetAmount: data.target_amount,
           creationTime: data.creation_time,
           lastSyncedAt: data.last_synced_at,
-          description: data.description || `Campaign by ${data.creator_name}`,
+          description: `Campaign by ${data.creator_name}`,
         },
-        vault: data.vault_id ? {
-          vaultId: data.vault_id,
-          description: data.description,
-        } : null,
+        vault: null,
       },
     });
   } catch (err: any) {
