@@ -8,6 +8,7 @@ import {
   syncBatch,
   getSyncStatus,
   validatePonderApiKey,
+  forceSyncFromPonder,
 } from "../controllers/syncController";
 
 const router = Router();
@@ -28,5 +29,8 @@ router.post("/badge", validatePonderApiKey, syncBadge);
 
 // Batch sync endpoint
 router.post("/batch", validatePonderApiKey, syncBatch);
+
+// Force sync from Ponder (pull model) - no auth needed for admin
+router.post("/force", forceSyncFromPonder);
 
 export default router;

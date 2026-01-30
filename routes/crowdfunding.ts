@@ -20,6 +20,7 @@ import {
   getUserBadges,
   getAllCampaigns,
   getCampaignById,
+  mockWithdrawFiat,
 } from "../controllers/vaultController";
 import {
   createAchievement,
@@ -67,6 +68,9 @@ router.post("/vault/create", authenticateUser, createVault as any);
 
 // Register Vault to IDRX Organization - requires authentication
 router.post("/vault/register-idrx", authenticateUser, registerVaultToIDRX);
+
+// Mock Withdraw to Bank (For Demo) - requires authentication
+router.post("/vault/withdraw-mock", authenticateUser, mockWithdrawFiat as any);
 
 // Add Bank Account to Vault - requires authentication
 router.post("/vault/add-bank-account", authenticateUser, addBankAccountToVault);

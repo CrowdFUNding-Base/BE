@@ -220,7 +220,7 @@ export const syncDonation = async (
         block_number, timestamp, last_synced_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
       ON CONFLICT (id) DO NOTHING
-    `,
+      `,
       [id, campaignId, donor, amount, transactionHash, blockNumber, timestamp],
     );
 
@@ -567,9 +567,6 @@ export const getSyncStatus = async (
   }
 };
 
-/**
- * Helper: Update sync status
- */
 async function updateSyncStatus(
   client: any,
   entityType: string,
@@ -593,3 +590,247 @@ async function updateSyncStatus(
     console.error("Failed to update sync status:", error);
   }
 }
+
+/**
+ * Force sync from Ponder Indexer (Pull model)
+ * POST /api/sync/force
+ */
+export const forceSyncFromPonder = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const client = await pool.connect();
+  const PONDER_URL = process.env.PONDER_URL || "http://localhost:42069";
+
+  try {
+    console.log("🔄 Starting force sync from Ponder...");
+
+    const axios = require("axios");
+    let syncedCounts = {
+      campaigns: 0,
+      donations: 0,
+      badges: 0,
+      withdrawals: 0,
+    };
+
+    // 1. Sync Campaigns
+    try {
+      const campaignsResponse = await axios.post(`${PONDER_URL}/graphql`, {
+        query: `
+          query {
+            campaignss(limit: 1000) {
+              items {
+                id
+                name
+                creatorName
+                balance
+                targetAmount
+                creationTime
+                owner
+              }
+            }
+          }
+        `,
+      });
+
+      const campaigns = campaignsResponse.data?.data?.campaignss?.items || [];
+
+      for (const campaign of campaigns) {
+        await client.query(
+          `
+          INSERT INTO blockchain_campaigns (
+            id, name, creator_name, balance, target_amount, 
+            creation_time, owner, last_synced_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            creator_name = EXCLUDED.creator_name,
+            balance = EXCLUDED.balance,
+            target_amount = EXCLUDED.target_amount,
+            last_synced_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+          [
+            campaign.id,
+            campaign.name,
+            campaign.creatorName || "",
+            campaign.balance || "0",
+            campaign.targetAmount,
+            campaign.creationTime,
+            campaign.owner,
+          ],
+        );
+        syncedCounts.campaigns++;
+      }
+      console.log(`✅ Synced ${syncedCounts.campaigns} campaigns`);
+    } catch (error: any) {
+      console.error("❌ Failed to sync campaigns:", error.message);
+    }
+
+    // 2. Sync Donations
+    try {
+      const donationsResponse = await axios.post(`${PONDER_URL}/graphql`, {
+        query: `
+          query {
+            donationss(limit: 1000) {
+              items {
+                id
+                campaignId
+                donor
+                amount
+                transactionHash
+                blockNumber
+                timestamp
+              }
+            }
+          }
+        `,
+      });
+      const donations = donationsResponse.data?.data?.donationss?.items || [];
+
+      for (const donation of donations) {
+        await client.query(
+          `
+          INSERT INTO blockchain_donations (
+            id, campaign_id, donor, amount, transaction_hash, 
+            block_number, timestamp, last_synced_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+          ON CONFLICT (id) DO NOTHING
+        `,
+          [
+            donation.id,
+            donation.campaignId,
+            donation.donor,
+            donation.amount,
+            donation.transactionHash,
+            donation.blockNumber,
+            donation.timestamp,
+          ],
+        );
+        syncedCounts.donations++;
+      }
+      console.log(`✅ Synced ${syncedCounts.donations} donations`);
+    } catch (error: any) {
+      console.error("❌ Failed to sync donations:", error.message);
+    }
+
+    // 3. Sync Badges
+    try {
+      const badgesResponse = await axios.post(`${PONDER_URL}/graphql`, {
+        query: `
+          query {
+            badgess(limit: 1000) {
+              items {
+                tokenId
+                owner
+                name
+                transactionHash
+                blockNumber
+                timestamp
+              }
+            }
+          }
+        `,
+      });
+      const badges = badgesResponse.data?.data?.badgess?.items || [];
+
+      for (const badge of badges) {
+        await client.query(
+          `
+          INSERT INTO blockchain_badges (
+            token_id, owner, name, transaction_hash, 
+            block_number, timestamp, last_synced_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+          ON CONFLICT (token_id) DO UPDATE SET
+            owner = EXCLUDED.owner,
+            last_synced_at = CURRENT_TIMESTAMP
+        `,
+          [
+            badge.tokenId,
+            badge.owner,
+            badge.name,
+            badge.transactionHash,
+            badge.blockNumber,
+            badge.timestamp,
+          ],
+        );
+        syncedCounts.badges++;
+      }
+      console.log(`✅ Synced ${syncedCounts.badges} badges`);
+    } catch (error: any) {
+      console.error("❌ Failed to sync badges:", error.message);
+    }
+
+    // 4. Sync Withdrawals
+    try {
+      const withdrawalsResponse = await axios.post(`${PONDER_URL}/graphql`, {
+        query: `
+          query {
+            withdrawalss(limit: 1000) {
+              items {
+                id
+                campaignId
+                name
+                owner
+                creatorName
+                amount
+                transactionHash
+                blockNumber
+                timestamp
+              }
+            }
+          }
+        `,
+      });
+      const withdrawals =
+        withdrawalsResponse.data?.data?.withdrawalss?.items || [];
+
+      for (const withdrawal of withdrawals) {
+        await client.query(
+          `
+          INSERT INTO blockchain_withdrawals (
+            id, campaign_id, name, owner, creator_name, amount, 
+            transaction_hash, block_number, timestamp, last_synced_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+          ON CONFLICT (id) DO NOTHING
+        `,
+          [
+            withdrawal.id,
+            withdrawal.campaignId,
+            withdrawal.name || "",
+            withdrawal.owner,
+            withdrawal.creatorName || "",
+            withdrawal.amount,
+            withdrawal.transactionHash,
+            withdrawal.blockNumber,
+            withdrawal.timestamp,
+          ],
+        );
+        syncedCounts.withdrawals++;
+      }
+      console.log(`✅ Synced ${syncedCounts.withdrawals} withdrawals`);
+    } catch (error: any) {
+      console.error("❌ Failed to sync withdrawals:", error.message);
+    }
+
+    console.log("✅ Force sync completed:", syncedCounts);
+
+    res.status(200).json({
+      success: true,
+      message: "Force sync from Ponder completed",
+      data: {
+        synced: syncedCounts,
+        ponderUrl: PONDER_URL,
+        syncedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ Force sync error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to force sync from Ponder",
+    });
+  } finally {
+    client.release();
+  }
+};

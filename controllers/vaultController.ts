@@ -117,6 +117,42 @@ export const createVault = async (req: Request, res: Response) => {
 };
 
 /**
+ * Mock Withdraw to Bank (For Demo)
+ * POST /api/vaults/withdraw-mock
+ */
+export const mockWithdrawFiat = async (req: Request, res: Response) => {
+  try {
+    const { campaignId, amount, bankName, accountNumber, accountHolder } = req.body;
+
+    // Simulate processing time
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    console.log(`[MOCK] Processing payout for Campaign #${campaignId}`);
+    console.log(`[MOCK] Amount: Rp ${amount} -> ${bankName} (${accountNumber})`);
+
+    // In a real app, this would trigger Xendit Payout / Midtrans Iris
+    
+    res.status(200).json({
+      success: true,
+      message: "Withdrawal request processed successfully",
+      data: {
+        transactionId: `payout-${Date.now()}`,
+        status: "COMPLETED",
+        amount: amount,
+        bank: bankName,
+        recipient: accountHolder
+      }
+    });
+  } catch (error) {
+    console.error("Mock withdrawal error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+/**
  * Update vault details and/or status
  * PUT /api/vaults/:vaultId
  */
@@ -698,17 +734,10 @@ export const getCampaignById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
+    // Note: vaults table doesn't have campaign_id column, so we query blockchain_campaigns only
     const query = `
-      SELECT 
-        bc.*,
-        v.vault_id,
-        v.title as vault_title,
-        v.description as vault_description,
-        v.status as vault_status,
-        v.end_date as vault_end_date
-      FROM blockchain_campaigns bc
-      LEFT JOIN vaults v ON bc.id = v.campaign_id
-      WHERE bc.id = $1
+      SELECT * FROM blockchain_campaigns 
+      WHERE id = $1
     `;
 
     const result = await client.query(query, [id]);
@@ -735,15 +764,7 @@ export const getCampaignById = async (req: Request, res: Response) => {
           creationTime: data.creation_time,
           lastSyncedAt: data.last_synced_at,
         },
-        vault: data.vault_id
-          ? {
-              vaultId: data.vault_id,
-              title: data.vault_title,
-              description: data.vault_description,
-              status: data.vault_status,
-              endDate: data.vault_end_date,
-            }
-          : null,
+        vault: null, // Vault relationship not implemented yet
       },
     });
   } catch (err: any) {
