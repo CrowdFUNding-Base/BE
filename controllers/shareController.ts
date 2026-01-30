@@ -7,7 +7,10 @@ import { VaultModel } from "../models/vaultModel";
  * Generate a shareable link for a campaign
  * POST /share/generate
  */
-export const generateShareLink = async (req: Request, res: Response): Promise<void> => {
+export const generateShareLink = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const { campaign_id } = req.body;
     const userId = (req as any).user?._id;
@@ -82,9 +85,12 @@ export const generateShareLink = async (req: Request, res: Response): Promise<vo
  * Generate QR code for a share link
  * GET /share/:shortCode/qr
  */
-export const generateQRCode = async (req: Request, res: Response): Promise<void> => {
+export const generateQRCode = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { shortCode } = req.params;
+    const shortCode = req.params.shortCode as string;
     const { format = "png" } = req.query;
 
     const shareLink = await ShareLinkModel.findByShortCode(shortCode);
@@ -142,9 +148,12 @@ export const generateQRCode = async (req: Request, res: Response): Promise<void>
  * Redirect to campaign page from share link
  * GET /share/:shortCode
  */
-export const redirectToCampaign = async (req: Request, res: Response): Promise<void> => {
+export const redirectToCampaign = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { shortCode } = req.params;
+    const shortCode = req.params.shortCode as string;
 
     const shareLink = await ShareLinkModel.findByShortCode(shortCode);
 
@@ -177,9 +186,12 @@ export const redirectToCampaign = async (req: Request, res: Response): Promise<v
  * Get Farcaster Frame metadata for a share link
  * GET /share/:shortCode/frame
  */
-export const getFarcasterFrameMetadata = async (req: Request, res: Response): Promise<void> => {
+export const getFarcasterFrameMetadata = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { shortCode } = req.params;
+    const shortCode = req.params.shortCode as string;
 
     const shareLink = await ShareLinkModel.findByShortCode(shortCode);
 
@@ -241,9 +253,12 @@ export const getFarcasterFrameMetadata = async (req: Request, res: Response): Pr
  * Generate share image for social preview
  * GET /share/:shortCode/image
  */
-export const generateShareImage = async (req: Request, res: Response): Promise<void> => {
+export const generateShareImage = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { shortCode } = req.params;
+    const shortCode = req.params.shortCode as string;
 
     const shareLink = await ShareLinkModel.findByShortCode(shortCode);
 
@@ -269,7 +284,10 @@ export const generateShareImage = async (req: Request, res: Response): Promise<v
     // For now, return a simple SVG image
     // In production, you could use canvas or a service like og-image
     const progress = vault.current_amount
-      ? Math.min((Number(vault.current_amount) / Number(vault.target_amount)) * 100, 100)
+      ? Math.min(
+          (Number(vault.current_amount) / Number(vault.target_amount)) * 100,
+          100,
+        )
       : 0;
 
     const svg = `
@@ -323,9 +341,12 @@ export const generateShareImage = async (req: Request, res: Response): Promise<v
  * Get share link statistics
  * GET /share/:shortCode/stats
  */
-export const getShareLinkStats = async (req: Request, res: Response): Promise<void> => {
+export const getShareLinkStats = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
-    const { shortCode } = req.params;
+    const shortCode = req.params.shortCode as string;
 
     const shareLink = await ShareLinkModel.findByShortCode(shortCode);
 
