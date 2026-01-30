@@ -734,10 +734,12 @@ export const getCampaignById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Note: vaults table doesn't have campaign_id column, so we query blockchain_campaigns only
+    // JOIN with vaults table to get description
     const query = `
-      SELECT * FROM blockchain_campaigns 
-      WHERE id = $1
+      SELECT bc.*, v.description, v.vault_id
+      FROM blockchain_campaigns bc
+      LEFT JOIN vaults v ON bc.id = v.campaign_id
+      WHERE bc.id = $1
     `;
 
     const result = await client.query(query, [id]);
@@ -763,8 +765,12 @@ export const getCampaignById = async (req: Request, res: Response) => {
           targetAmount: data.target_amount,
           creationTime: data.creation_time,
           lastSyncedAt: data.last_synced_at,
+          description: data.description || `Campaign by ${data.creator_name}`,
         },
-        vault: null, // Vault relationship not implemented yet
+        vault: data.vault_id ? {
+          vaultId: data.vault_id,
+          description: data.description,
+        } : null,
       },
     });
   } catch (err: any) {
