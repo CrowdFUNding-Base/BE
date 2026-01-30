@@ -12,7 +12,9 @@ export const CONTRACT_ADDRESSES = {
   USDC: "0xC85840d4754aC06cEE7138eC0a664317921B6B5f",
   // Main Contracts (set via environment variables)
   CAMPAIGN: process.env.CAMPAIGN_CONTRACT_ADDRESS || "",
-  BADGE: process.env.BADGE_CONTRACT_ADDRESS || "",
+  BADGE:
+    process.env.BADGE_CONTRACT_ADDRESS ||
+    "0x27EA9B34D708ff7646F92Dab287DfD43EbBA0d19",
 };
 
 export const NETWORK_CONFIG = {
