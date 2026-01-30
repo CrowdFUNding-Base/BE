@@ -9,6 +9,7 @@ import {
   getSyncStatus,
   validatePonderApiKey,
   forceSyncFromPonder,
+  clearBlockchainData,
 } from "../controllers/syncController";
 
 const router = Router();
@@ -32,5 +33,8 @@ router.post("/batch", validatePonderApiKey, syncBatch);
 
 // Force sync from Ponder (pull model) - no auth needed for admin
 router.post("/force", forceSyncFromPonder);
+
+// Clear all blockchain data (for re-sync)
+router.post("/clear", clearBlockchainData);
 
 export default router;

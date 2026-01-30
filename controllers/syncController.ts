@@ -647,6 +647,7 @@ export const forceSyncFromPonder = async (
             creator_name = EXCLUDED.creator_name,
             balance = EXCLUDED.balance,
             target_amount = EXCLUDED.target_amount,
+            owner = EXCLUDED.owner,
             last_synced_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
         `,
@@ -829,6 +830,55 @@ export const forceSyncFromPonder = async (
     res.status(500).json({
       success: false,
       message: error.message || "Failed to force sync from Ponder",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Clear all blockchain data (for re-sync)
+ * POST /api/sync/clear
+ */
+export const clearBlockchainData = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const client = await pool.connect();
+
+  try {
+    console.log("🗑️ Clearing blockchain data...");
+
+    await client.query("BEGIN");
+
+    // Truncate all blockchain tables
+    await client.query("TRUNCATE blockchain_donations CASCADE");
+    await client.query("TRUNCATE blockchain_withdrawals CASCADE");
+    await client.query("TRUNCATE blockchain_badges CASCADE");
+    await client.query("TRUNCATE blockchain_campaigns CASCADE");
+
+    // Reset sync status
+    await client.query(`
+      UPDATE sync_status SET 
+        last_block_number = NULL,
+        total_synced = 0,
+        last_synced_at = NULL
+    `);
+
+    await client.query("COMMIT");
+
+    console.log("✅ Blockchain data cleared successfully");
+
+    res.status(200).json({
+      success: true,
+      message: "Blockchain data cleared. Run force sync to repopulate.",
+    });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    console.error("❌ Clear data error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to clear blockchain data",
     });
   } finally {
     client.release();
