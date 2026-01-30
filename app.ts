@@ -96,12 +96,18 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 3300;
 
+// Import auto-sync service
+import { startAutoSync } from "./services/autoSync";
+
 app.listen(PORT, () => {
   console.log(
     `Server running on port ${process.env.PORT || PORT} in ${
       process.env.NODE_ENV || "development"
     } mode.`,
   );
+
+  // Start auto-sync from Ponder indexer
+  startAutoSync();
 });
 
 // receiverListener();
