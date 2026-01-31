@@ -4,6 +4,8 @@ import pool from "../config/database";
 const PONDER_URL = process.env.PONDER_URL || "http://localhost:42069";
 const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL_MS || "10000"); // Default: 10 seconds
 
+console.log("🔧 PONDER_URL configured as:", PONDER_URL);
+
 let isRunning = false;
 
 /**
@@ -80,7 +82,7 @@ async function syncFromPonder() {
         syncedCounts.campaigns++;
       }
     } catch (error: any) {
-      console.error("❌ Failed to sync campaigns:", error.message);
+      console.error("❌ Failed to sync campaigns:", error.message || error);
     }
 
     // 2. Sync Donations
@@ -127,7 +129,7 @@ async function syncFromPonder() {
         syncedCounts.donations++;
       }
     } catch (error: any) {
-      console.error("❌ Failed to sync donations:", error.message);
+      console.error("❌ Failed to sync donations:", error.message || error);
     }
 
     // 3. Sync Badges
@@ -173,7 +175,7 @@ async function syncFromPonder() {
         syncedCounts.badges++;
       }
     } catch (error: any) {
-      console.error("❌ Failed to sync badges:", error.message);
+      console.error("❌ Failed to sync badges:", error.message || error);
     }
 
     // 4. Sync Withdrawals
@@ -224,7 +226,7 @@ async function syncFromPonder() {
         syncedCounts.withdrawals++;
       }
     } catch (error: any) {
-      console.error("❌ Failed to sync withdrawals:", error.message);
+      console.error("❌ Failed to sync withdrawals:", error.message || error);
     }
 
     console.log(`✅ Auto-sync completed:`, syncedCounts);

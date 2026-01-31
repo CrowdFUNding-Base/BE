@@ -22,12 +22,17 @@ import cookieParser from "cookie-parser";
 const app = express();
 connectDB();
 
+// Debug: Log environment variables on startup
+console.log("🔧 CORS Config - FRONTEND_URL:", process.env.FRONTEND_URL);
+console.log("🔧 CORS Config - PONDER_URL:", process.env.PONDER_URL);
+
 const whitelist = [
-  process.env.FRONTEND_URL || "",
-  process.env.FARCASTER_URL || "",
-  "http://localhost:3000", // Tambah localhost untuk development
+  "https://crowdfunding-base.vercel.app", // Hardcoded for reliability
+  process.env.FRONTEND_URL,
+  process.env.FARCASTER_URL,
+  "http://localhost:3000",
   "http://127.0.0.1:3000",
-];
+].filter(Boolean); // Remove undefined/empty values
 
 const corsOptions = {
   origin: (origin: any, callback: any) => {
