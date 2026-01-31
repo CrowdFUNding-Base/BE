@@ -89,7 +89,9 @@ export const getQRISStatus = async (req: Request, res: Response) => {
       SELECT * FROM blockchain_donations 
       WHERE id LIKE $1
     `;
-    const existingTransaction = await client.query(checkQuery, [`qris-${orderId}%`]);
+    const existingTransaction = await client.query(checkQuery, [
+      `qris-${orderId}%`,
+    ]);
 
     if (existingTransaction.rows.length > 0) {
       return res.status(200).json({
@@ -125,8 +127,9 @@ export const getQRISStatus = async (req: Request, res: Response) => {
       const campaignQuery = `
         SELECT id, name FROM blockchain_campaigns WHERE id = $1
       `;
-      const campaignResult = await client.query(campaignQuery, [campaignId]);
 
+      const campaignResult = await client.query(campaignQuery, [campaignId]);
+      console.log("campaign result:", campaignResult);
       if (campaignResult.rows.length === 0) {
         return res.status(404).json({
           success: false,
@@ -136,7 +139,7 @@ export const getQRISStatus = async (req: Request, res: Response) => {
 
       // Mint IDRX and donate to Campaign contract
       const donateResult = await mintAndDonateIDRX(amount, campaignId);
-
+      console.log("DONATE RESULT:", donateResult);
       if (!donateResult.success) {
         return res.status(500).json({
           success: false,
@@ -196,6 +199,7 @@ const mintAndDonateIDRX = async (amount: number, campaignId: number) => {
 
     // Get contract addresses
     const idrxAddress = getContractAddress("IDRX");
+    console.log("IDRXADDRESS", idrxAddress);
     const campaignAddress = getContractAddress("CAMPAIGN");
 
     console.log(`IDRX: ${idrxAddress}, Campaign: ${campaignAddress}`);

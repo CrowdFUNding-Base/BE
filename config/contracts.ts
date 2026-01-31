@@ -12,8 +12,12 @@ export const CONTRACT_ADDRESSES = {
   USDC: "0x2D34d56F3E1f64FFa297f88E7828Ec0EC7d825f6",
   SWAP: "0xd3D4F196434E8EDCc897F47b36E1234BB514f5BA",
   // Main Contracts
-  CAMPAIGN: process.env.CAMPAIGN_CONTRACT_ADDRESS,
-  BADGE: process.env.BADGE_CONTRACT_ADDRESS,
+  CAMPAIGN:
+    process.env.CAMPAIGN_CONTRACT_ADDRESS ||
+    "0x17fb0DD846d2299F525ca0d0402C607C580e80c8",
+  BADGE:
+    process.env.BADGE_CONTRACT_ADDRESS ||
+    "0x8bdfD4C3f8e108687ABA5d9ebD9aFFe355545471",
 };
 
 export const NETWORK_CONFIG = {
@@ -69,6 +73,7 @@ export const getCampaignContract = (
   signer?: ethers.Signer | ethers.providers.Provider,
 ): ethers.Contract => {
   const address = getContractAddress("CAMPAIGN");
+  console.log("ADDRESSCAMPAIGN", address);
   const signerOrProvider = signer || getWallet();
   return new ethers.Contract(address, CAMPAIGN_ABI, signerOrProvider);
 };
