@@ -30,13 +30,16 @@ const whitelist = [
   "https://crowdfunding-base.vercel.app", // Hardcoded for reliability
   process.env.FRONTEND_URL,
   process.env.FARCASTER_URL,
+  process.env.PONDER_URL, // Add Ponder URL to whitelist
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://localhost:42069", // Local Ponder
+  "http://127.0.0.1:42069", // Local Ponder
 ].filter(Boolean); // Remove undefined/empty values
 
 const corsOptions = {
   origin: (origin: any, callback: any) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, server-to-server, etc.)
     if (!origin) return callback(null, true);
 
     if (whitelist.indexOf(origin) !== -1) {
@@ -54,6 +57,7 @@ const corsOptions = {
     "X-Requested-With",
     "Accept",
     "Origin",
+    "x-ponder-api-key", // Add Ponder API key header
   ],
   exposedHeaders: ["Set-Cookie"],
 };
