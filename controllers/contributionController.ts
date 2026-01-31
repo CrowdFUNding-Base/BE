@@ -148,17 +148,52 @@ export const getQRISStatus = async (req: Request, res: Response) => {
         });
       }
 
-      // Note: blockchain_donations will be populated by Ponder sync
-      // after the donate transaction is confirmed on-chain
+      // Insert QRIS donation to blockchain_donations table
+      try {
+        const donationId = `qris-${response.data.order_id}`;
+        const backendWallet = (
+          donateResult.data?.campaignAddress ||
+          "0x0000000000000000000000000000000000000000"
+        ).toLowerCase();
+        const timestamp = Math.floor(Date.now() / 1000);
+
+        await client.query(
+          `INSERT INTO blockchain_donations (
+            id, campaign_id, donor, amount, transaction_hash, 
+            block_number, timestamp, payment_method, qris_order_id, qris_gross_amount
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            donationId,
+            campaignId,
+            backendWallet, // QRIS donations come from backend wallet
+            ethers.utils.parseUnits(amount.toString(), 2).toString(), // Amount in IDRX units (2 decimals)
+            donateResult.data?.donateTxHash || "pending",
+            donateResult.data?.blockNumber || 0,
+            timestamp,
+            "QRIS",
+            response.data.order_id, // Midtrans order_id
+            amount, // Original IDR amount
+          ],
+        );
+
+        console.log(
+          `✅ QRIS donation saved to blockchain_donations: ${donationId}`,
+        );
+      } catch (insertError: any) {
+        console.error("Failed to insert QRIS donation:", insertError);
+        // Don't fail the whole request, blockchain donation was successful
+      }
 
       res.status(200).json({
         success: true,
+        message: "QRIS payment processed and donated to blockchain campaign",
         data: {
           transaction: response.data,
           donation: donateResult.data,
           campaignId: campaignId,
           amount: amount,
           paymentMethod: "QRIS",
+          donationId: `qris-${response.data.order_id}`,
         },
       });
     } else {
