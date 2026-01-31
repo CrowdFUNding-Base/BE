@@ -8,22 +8,26 @@ import {
   getContractAddress,
 } from "../config/contracts";
 
+/**
+ * Create QRIS payment for a campaign
+ * POST /api/contribution/qris
+ */
 export const createQRIS = async (req: Request, res: Response) => {
   const url = "https://app.sandbox.midtrans.com/snap/v1/transactions";
 
   try {
-    const { vault_id, amount, customer_details } = req.body;
+    const { campaign_id, amount, customer_details } = req.body;
 
     // Validate input
-    if (!vault_id || !amount) {
-      res.status(400).json({
+    if (!campaign_id || !amount) {
+      return res.status(400).json({
         success: false,
-        message: "vault_id and amount are required",
+        message: "campaign_id and amount are required",
       });
     }
 
-    // Create order_id with format: vaultId-timestamp
-    const orderId = `${vault_id}-${Date.now()}`;
+    // Create order_id with format: campaignId-timestamp
+    const orderId = `qris-${campaign_id}-${Date.now()}`;
 
     const response = await axios.post(
       url,
@@ -33,8 +37,8 @@ export const createQRIS = async (req: Request, res: Response) => {
           gross_amount: amount,
         },
         customer_details: customer_details || {
-          first_name: "Customer",
-          email: "customer@example.com",
+          first_name: "Donatur",
+          email: "donatur@crowdfunding.id",
         },
         credit_card: { secure: true },
       },
@@ -46,18 +50,20 @@ export const createQRIS = async (req: Request, res: Response) => {
         },
       },
     );
-    console.log(response.data);
+    console.log("QRIS Created:", response.data);
 
     res.status(200).json({
       success: true,
       data: {
         order_id: orderId,
+        campaign_id: campaign_id,
+        amount: amount,
         token: response.data.token,
         redirect_url: response.data.redirect_url,
       },
     });
   } catch (err: any) {
-    console.error(err);
+    console.error("Create QRIS error:", err);
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -66,6 +72,10 @@ export const createQRIS = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Check QRIS payment status and mint+donate if settled
+ * POST /api/contribution/qris-status/:orderId
+ */
 export const getQRISStatus = async (req: Request, res: Response) => {
   const client = await pool.connect();
 
@@ -74,16 +84,18 @@ export const getQRISStatus = async (req: Request, res: Response) => {
     const url = `https://api.sandbox.midtrans.com/v2/${orderId}/status`;
 
     // Check if this transaction has already been processed (anti-reentrancy)
+    // We use blockchain_donations to check if tx with this order_id pattern exists
     const checkQuery = `
-      SELECT * FROM contributors 
-      WHERE qris_transaction_id = $1 AND status = 'completed'
+      SELECT * FROM blockchain_donations 
+      WHERE id LIKE $1
     `;
-    const existingTransaction = await client.query(checkQuery, [orderId]);
+    const existingTransaction = await client.query(checkQuery, [`qris-${orderId}%`]);
 
     if (existingTransaction.rows.length > 0) {
-      res.status(400).json({
-        success: false,
+      return res.status(200).json({
+        success: true,
         message: "Transaction already processed",
+        data: existingTransaction.rows[0],
       });
     }
 
@@ -94,48 +106,38 @@ export const getQRISStatus = async (req: Request, res: Response) => {
       },
     });
 
-    console.log(response.data);
+    console.log("QRIS Status:", response.data);
 
     if (response.data.transaction_status === "settlement") {
-      // Extract vault_id from order_id
-      const vaultId = response.data.order_id.split("-")[0];
+      // Extract campaign_id from order_id (format: qris-{campaignId}-{timestamp})
+      const orderParts = response.data.order_id.split("-");
+      const campaignId = parseInt(orderParts[1]);
       const amount = parseFloat(response.data.gross_amount);
 
-      // Get vault details
-      const vaultQuery = `
-        SELECT vault_id, campaign_id, current_amount, target_amount 
-        FROM vaults 
-        WHERE vault_id = $1
-      `;
-      const vaultResult = await client.query(vaultQuery, [vaultId]);
-
-      if (vaultResult.rows.length === 0) {
-        return res.status(404).json({
+      if (isNaN(campaignId)) {
+        return res.status(400).json({
           success: false,
-          message: "Vault not found",
+          message: "Invalid order_id format",
         });
       }
 
-      const vault = vaultResult.rows[0];
-      const campaignId = vault.campaign_id;
+      // Verify campaign exists in blockchain_campaigns
+      const campaignQuery = `
+        SELECT id, name FROM blockchain_campaigns WHERE id = $1
+      `;
+      const campaignResult = await client.query(campaignQuery, [campaignId]);
 
-      // Start transaction
-      await client.query("BEGIN");
-
-      // Insert contributor record
-      await client.query(
-        `INSERT INTO contributors (
-          vault_id, amount, currency, payment_method, 
-          qris_transaction_id, status
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [vaultId, amount, "IDRX", "QRIS", orderId, "minting"],
-      );
+      if (campaignResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Campaign not found",
+        });
+      }
 
       // Mint IDRX and donate to Campaign contract
       const donateResult = await mintAndDonateIDRX(amount, campaignId);
 
       if (!donateResult.success) {
-        await client.query("ROLLBACK");
         return res.status(500).json({
           success: false,
           message: "Minting and donation failed",
@@ -143,32 +145,17 @@ export const getQRISStatus = async (req: Request, res: Response) => {
         });
       }
 
-      // Update contributor status
-      await client.query(
-        `UPDATE contributors 
-         SET status = 'completed', transaction_hash = $1
-         WHERE qris_transaction_id = $2`,
-        [donateResult.data?.donateTxHash || "N/A", orderId],
-      );
-
-      // Update vault current_amount
-      await client.query(
-        `UPDATE vaults 
-         SET current_amount = current_amount + $1, updated_at = CURRENT_TIMESTAMP
-         WHERE vault_id = $2`,
-        [amount, vaultId],
-      );
-
-      await client.query("COMMIT");
+      // Note: blockchain_donations will be populated by Ponder sync
+      // after the donate transaction is confirmed on-chain
 
       res.status(200).json({
         success: true,
         data: {
           transaction: response.data,
           donation: donateResult.data,
-          vaultId: vaultId,
           campaignId: campaignId,
           amount: amount,
+          paymentMethod: "QRIS",
         },
       });
     } else {
@@ -178,13 +165,12 @@ export const getQRISStatus = async (req: Request, res: Response) => {
         status: response.data.transaction_status,
       });
     }
-  } catch (err) {
-    // Rollback on any error
-    await client.query("ROLLBACK");
-    console.error(err);
+  } catch (err: any) {
+    console.error("Get QRIS status error:", err);
     res.status(500).json({
       success: false,
       message: "Internal server error",
+      error: err.message,
     });
   } finally {
     client.release();
