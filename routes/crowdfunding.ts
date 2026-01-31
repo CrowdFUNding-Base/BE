@@ -21,6 +21,8 @@ import {
   getAllCampaigns,
   getCampaignById,
   mockWithdrawFiat,
+  getLeaderboard,
+  getUserGamification,
 } from "../controllers/vaultController";
 import {
   createAchievement,
@@ -154,5 +156,13 @@ router.get("/donations/user/:walletAddress", getUserDonations as any);
 
 // Get User Badges from PostgreSQL Cache - public access
 router.get("/badges/user/:walletAddress", getUserBadges as any);
+
+// ================= GAMIFICATION ROUTES =================
+
+// Get Leaderboard (ranked by charity points) - public access
+router.get("/leaderboard", getLeaderboard as any);
+
+// Get User Gamification Stats - public access
+router.get("/gamification/:walletAddress", getUserGamification as any);
 
 export default router;

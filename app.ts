@@ -65,7 +65,7 @@ app.options("*", cors(corsOptions));
 
 app.use(cookieParser());
 app.use(express.json());
-app.use(express.urlencoded());
+app.use(express.urlencoded({ extended: true }));
 app.use(methodOverride("_method")); //  buat munculin UPDATE dan DELETE
 app.use("/public", express.static(path.join(__dirname, "../public")));
 

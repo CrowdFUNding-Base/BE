@@ -787,3 +787,196 @@ export const getCampaignById = async (req: Request, res: Response) => {
     client.release();
   }
 };
+
+/**
+ * Get leaderboard (top donors by charity points)
+ * GET /api/leaderboard
+ */
+export const getLeaderboard = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { limit = 20 } = req.query;
+
+    const query = `
+      SELECT 
+        wa.wallet_address,
+        wa.charity_points,
+        wa.streak,
+        wa.total_donated,
+        u.fullname
+      FROM wallet_addresses wa
+      LEFT JOIN users u ON wa.user_id = u.id
+      WHERE wa.charity_points > 0
+      ORDER BY wa.charity_points DESC
+      LIMIT $1
+    `;
+
+    const result = await client.query(query, [limit]);
+
+    // Return empty array if no data (handle gracefully)
+    const leaderboard = result.rows.map((row, index) => ({
+      rank: index + 1,
+      walletAddress: row.wallet_address,
+      name: row.fullname || `User ${row.wallet_address.slice(0, 6)}...${row.wallet_address.slice(-4)}`,
+      charityPoints: row.charity_points || 0,
+      streak: row.streak || 0,
+      totalDonated: row.total_donated || "0",
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: leaderboard,
+      meta: {
+        total: result.rows.length,
+        limit: Number(limit),
+        isEmpty: result.rows.length === 0,
+      },
+    });
+  } catch (err: any) {
+    console.error("Get leaderboard error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get leaderboard",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Get gamification stats for a wallet address
+ * GET /api/gamification/:walletAddress
+ */
+export const getUserGamification = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const { walletAddress } = req.params;
+
+    // Get gamification data from wallet_addresses
+    const walletQuery = `
+      SELECT 
+        wa.charity_points,
+        wa.streak,
+        wa.last_donation_date,
+        wa.total_donated
+      FROM wallet_addresses wa
+      WHERE LOWER(wa.wallet_address) = LOWER($1)
+    `;
+
+    const result = await client.query(walletQuery, [walletAddress]);
+
+    // If no wallet found, return default values (empty state)
+    if (result.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          charityPoints: 0,
+          streak: 0,
+          lastDonationDate: null,
+          totalDonated: "0",
+          isEmpty: true,
+        },
+      });
+    }
+
+    const data = result.rows[0];
+
+    res.status(200).json({
+      success: true,
+      data: {
+        charityPoints: data.charity_points || 0,
+        streak: data.streak || 0,
+        lastDonationDate: data.last_donation_date,
+        totalDonated: data.total_donated || "0",
+        isEmpty: false,
+      },
+    });
+  } catch (err: any) {
+    console.error("Get user gamification error:", err);
+    res.status(500).json({
+      success: false,
+      message: err.message || "Failed to get gamification data",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Update gamification on donation (called internally by sync)
+ * This increments charity_points and updates streak
+ */
+export const updateGamificationOnDonate = async (
+  walletAddress: string,
+  donationAmount: string
+): Promise<void> => {
+  const client = await pool.connect();
+
+  try {
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+    // Check if wallet exists
+    const checkQuery = `
+      SELECT id, last_donation_date, streak FROM wallet_addresses 
+      WHERE LOWER(wallet_address) = LOWER($1)
+    `;
+    const checkResult = await client.query(checkQuery, [walletAddress]);
+
+    if (checkResult.rows.length === 0) {
+      // Wallet not in our system, skip gamification
+      console.log(`Wallet ${walletAddress} not found for gamification update`);
+      return;
+    }
+
+    const wallet = checkResult.rows[0];
+    const lastDate = wallet.last_donation_date;
+    let newStreak = wallet.streak || 0;
+
+    // Calculate streak
+    if (lastDate) {
+      const lastDateStr = new Date(lastDate).toISOString().split("T")[0];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+      if (lastDateStr === today) {
+        // Already donated today, don't increment streak
+      } else if (lastDateStr === yesterdayStr) {
+        // Consecutive day, increment streak
+        newStreak += 1;
+      } else {
+        // Streak broken, reset to 1
+        newStreak = 1;
+      }
+    } else {
+      // First donation
+      newStreak = 1;
+    }
+
+    // Update gamification data
+    const updateQuery = `
+      UPDATE wallet_addresses
+      SET 
+        charity_points = COALESCE(charity_points, 0) + 1,
+        streak = $1,
+        last_donation_date = $2,
+        total_donated = COALESCE(total_donated, 0) + $3
+      WHERE LOWER(wallet_address) = LOWER($4)
+    `;
+
+    await client.query(updateQuery, [
+      newStreak,
+      today,
+      parseFloat(donationAmount) || 0,
+      walletAddress,
+    ]);
+
+    console.log(`✅ Gamification updated for ${walletAddress}: +1 point, streak=${newStreak}`);
+  } catch (err: any) {
+    console.error("Update gamification error:", err.message);
+  } finally {
+    client.release();
+  }
+};
