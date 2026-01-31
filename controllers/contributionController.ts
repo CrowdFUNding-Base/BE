@@ -219,9 +219,13 @@ export const getQRISStatus = async (req: Request, res: Response) => {
  * Mint IDRX to backend wallet, then donate to Campaign contract
  * Uses sequential nonce fetching to avoid nonce conflicts
  */
-const mintAndDonateIDRX = async (amount: number, campaignId: number, retryCount = 0): Promise<any> => {
+const mintAndDonateIDRX = async (
+  amount: number,
+  campaignId: number,
+  retryCount = 0,
+): Promise<any> => {
   const MAX_RETRIES = 3;
-  
+
   if (!amount || campaignId === undefined) {
     return {
       success: false,
@@ -246,51 +250,35 @@ const mintAndDonateIDRX = async (amount: number, campaignId: number, retryCount 
     // IDRX has 2 decimals
     const amountToMint = ethers.utils.parseUnits(amount.toString(), 2);
 
-    // Helper function to get fresh nonce
-    const getFreshNonce = async () => {
-      return await provider.getTransactionCount(wallet.address, "pending");
-    };
+    // Get starting nonce from pending (includes mempool)
+    let nonce = await wallet.getTransactionCount("pending");
+    console.log(`Starting nonce: ${nonce}`);
 
     // Step 1: Mint IDRX to backend wallet
     console.log(`[1/3] Minting ${amount} IDRX to backend wallet...`);
-    
-    // Get fresh nonce from blockchain for mint transaction
-    const mintNonce = await provider!.getTransactionCount(wallet.address, "latest");
-    console.log(`Using nonce ${mintNonce} for mint transaction`);
-    
     const mintTx = await idrxContract.mint(wallet.address, amountToMint, {
-      nonce: mintNonce,
+      nonce: nonce++,
     });
     await mintTx.wait();
     console.log(`Minted! TX: ${mintTx.hash}`);
 
     // Step 2: Approve Campaign contract to spend IDRX
     console.log(`[2/3] Approving Campaign contract...`);
-    
-    // Get fresh nonce for approve transaction (should be mintNonce + 1)
-    const approveNonce = await provider!.getTransactionCount(wallet.address, "latest");
-    console.log(`Using nonce ${approveNonce} for approve transaction`);
-    
-    const approveTx = await idrxContract.approve(campaignAddress, amountToMint, {
-      nonce: approveNonce,
-    });
+    const approveTx = await idrxContract.approve(
+      campaignAddress,
+      amountToMint,
+      { nonce: nonce++ },
+    );
     await approveTx.wait();
     console.log(`Approved! TX: ${approveTx.hash}`);
 
     // Step 3: Donate IDRX to Campaign
     console.log(`[3/3] Donating to Campaign #${campaignId}...`);
-    
-    // Get fresh nonce for donate transaction
-    const donateNonce = await provider!.getTransactionCount(wallet.address, "latest");
-    console.log(`Using nonce ${donateNonce} for donate transaction`);
-    
     const donateTx = await campaignContract.donate(
       campaignId,
       amountToMint,
       idrxAddress,
-      {
-        nonce: donateNonce,
-      }
+      { nonce: nonce++ },
     );
     const donateReceipt = await donateTx.wait();
     console.log(
@@ -312,25 +300,26 @@ const mintAndDonateIDRX = async (amount: number, campaignId: number, retryCount 
     };
   } catch (err: any) {
     console.error("Mint and donate error:", err);
-    
+
     // Better error message for nonce errors
-    if (err.code === 'NONCE_EXPIRED' || err.message?.includes('nonce')) {
+    if (err.code === "NONCE_EXPIRED" || err.message?.includes("nonce")) {
       return {
         success: false,
-        message: "Transaction nonce conflict. Please try again in a few seconds.",
+        message:
+          "Transaction nonce conflict. Please try again in a few seconds.",
         error: "NONCE_ERROR",
       };
     }
-    
+
     // Check for campaign not found error
-    if (err.message?.includes('CampaignNotFound')) {
+    if (err.message?.includes("CampaignNotFound")) {
       return {
         success: false,
         message: `Campaign #${campaignId} does not exist on blockchain`,
         error: "CAMPAIGN_NOT_FOUND",
       };
     }
-    
+
     return {
       success: false,
       message: err.message || "Failed to mint and donate IDRX",
